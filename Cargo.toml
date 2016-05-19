@@ -1,0 +1,10 @@
+[package]
+name = "simple-game"
+version = "0.1.0"
+authors = ["Jack Fransham <moonfudgeman@hotmail.co.uk>"]
+
+[dependencies]
+sdl2 = "*"
+sdl2_image = "*"
+sdl2_ttf = "*"
+itertools = "*"
