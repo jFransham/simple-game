@@ -54,7 +54,7 @@ pub fn build_spritesheet<T: GetSize, RcT: Into<Rc<T>>>(
     (0..h).step_by(sprite_height)
         .cartesian_product((0..w).step_by(sprite_width))
         .map(|(y, x)|
-            Sprite::new_with_clip(
+            Sprite::new_with_mask(
                 rctex.clone(),
                 Clip {
                     x: x,
@@ -66,14 +66,32 @@ pub fn build_spritesheet<T: GetSize, RcT: Into<Rc<T>>>(
         ).collect()
 }
 
-#[derive(Clone, Debug)]
-pub struct Sprite<T: GetSize> {
+#[derive(Debug)]
+pub struct Image<T: GetSize> {
     pub texture: Rc<T>,
     pub mask: Clip,
 }
 
+pub struct Rectangle(Color);
+
+impl<T: GetSize> Clone for Sprite<T> {
+    fn clone(&self) -> Self {
+        Sprite {
+            texture: self.texture.clone(),
+            mask: self.mask,
+        }
+    }
+}
+
 impl<T: GetSize> Sprite<T> {
-    pub fn new_with_clip<RcT: Into<Rc<T>>>(tex: RcT, mask: Clip) -> Self {
+    pub fn with_mask(&self, mask: Clip) -> Self {
+        Sprite {
+            mask: mask,
+            .. self.clone()
+        }
+    }
+
+    pub fn new_with_mask<RcT: Into<Rc<T>>>(tex: RcT, mask: Clip) -> Self {
         Sprite {
             texture: tex.into(),
             mask: mask,
@@ -94,13 +112,6 @@ impl<T: GetSize> Sprite<T> {
             },
         }
     }
-
-    pub fn with_mask(self, clip: Clip) -> Self {
-        Sprite {
-            texture: self.texture,
-            mask: clip,
-        }
-    }
 }
 
 pub trait LoadSprite<T: GetSize> {
@@ -115,7 +126,9 @@ impl<L: LoadTexture> LoadSprite<Texture> for L {
     }
 }
 
-pub struct AnimationSet<Idx: Eq + Hash, AIdx>(HashMap<Idx, Animation<AIdx>>);
+pub struct AnimationSet<Idx: Eq + Hash, AIdx>(
+    pub HashMap<Idx, Animation<AIdx>>
+);
 
 impl<Idx: Eq + Hash, AIdx> AnimationSet<Idx, AIdx> {
     pub fn from_tuples<
@@ -133,8 +146,8 @@ impl<Idx: Eq + Hash, AIdx> AnimationSet<Idx, AIdx> {
 }
 
 pub struct Animation<AIdx> {
-    fps: f64,
-    frames: Vec<AIdx>,
+    pub fps: f64,
+    pub frames: Vec<AIdx>,
 }
 
 pub struct SpriteSet<Idx: Eq + Hash, T: GetSize>(HashMap<Idx, Sprite<T>>);
@@ -145,6 +158,39 @@ impl<Idx, I: IntoIterator<Item=Idx>> From<(f64, I)> for Animation<Idx> {
             fps: fps,
             frames: iter.into_iter().collect(),
         }
+    }
+}
+
+pub type AnimatedSprite<
+    Time,
+    T,
+> = AnimatedSpriteSheet<(), usize, Time, T, Vec<Sprite<T>>>;
+
+impl<
+    Time: TimeExtensions + Clone,
+    T: GetSize,
+> AnimatedSprite<Time, T> {
+    pub fn from_spritesheet(
+        now: Time,
+        fps: f64,
+        spritesheet: Vec<Sprite<T>>
+    ) -> Self {
+        let mut hm = HashMap::new();
+
+        hm.insert(
+            (),
+            Animation {
+                fps: fps,
+                frames: (0..spritesheet.len()).collect(),
+            }
+        );
+
+        Self::new(
+            spritesheet,
+            AnimationSet(hm),
+            (),
+            now
+        )
     }
 }
 
@@ -192,8 +238,7 @@ impl<
 
         let frame_num = tick_diff * anim.fps;
 
-        let frame =
-            anim.frames[frame_num as usize % anim.frames.len()].clone();
+        let frame = anim.frames[frame_num as usize % anim.frames.len()].clone();
 
         &self.sprites[frame]
     }

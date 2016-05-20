@@ -1,11 +1,13 @@
 use ::events::{KeySet, GameTime};
+use ::graphics::font_cache::FontCache;
 use sdl2::render::Renderer;
 
 pub enum Action<T: KeySet> {
     Quit,
-    ChangeView(Box<View<T>>),
+    ChangeView(Box<ViewBuilder<T>>),
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct KeyEvents<T: KeySet> {
     pub down: T,
     pub pressed: T,
@@ -26,11 +28,23 @@ impl<T: KeySet> KeyEvents<T> {
 }
 
 pub struct Context<'a, 'b: 'a, T: KeySet> {
-    pub time: GameTime,
     pub events: KeyEvents<T>,
     pub renderer: &'a mut Renderer<'b>,
+    pub font_cache: &'a mut FontCache<'b>,
 }
 
 pub trait View<T: KeySet> {
-    fn render(&mut self, context: Context<T>) -> Option<Action<T>>;
+    fn render(&mut self, context: &mut Context<T>, elapsed: u32) -> Option<Action<T>>;
+}
+
+pub trait ViewBuilder<T: KeySet> {
+    fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T>>;
+}
+
+impl<T: KeySet, F: FnOnce(&mut Context<T>) -> Box<View<T>>>
+    ViewBuilder<T> for F
+{
+    fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T>> {
+        self(context)
+    }
 }

@@ -1,9 +1,13 @@
 #![feature(fnbox)]
+#![feature(box_syntax)]
+#![feature(type_ascription)]
 #![feature(try_from)]
 #![feature(specialization)]
 #![feature(step_by)]
 #![feature(slice_patterns)]
 #![feature(zero_one)]
+
+#![allow(boxed_local)]
 
 extern crate sdl2;
 extern crate sdl2_image;
@@ -19,7 +23,7 @@ mod gameobjects;
 mod set;
 mod graphics;
 mod lazy;
-mod coelesce;
+mod coalesce;
 
 use graphics::font_cache::FontCache;
 use gameobjects::player::*;
@@ -51,13 +55,10 @@ fn main() {
 
     let mut font_cache = FontCache::new(&sdl_ttf);
 
-    let ship_state = Box::new(ShipView::new(&mut renderer));
-    let mut state = Box::new(
-        main_menu(
-            &mut renderer,
-            &mut font_cache,
-            ship_state
-        )
+    let mut state = box main_menu(
+        &mut renderer,
+        &mut font_cache,
+        box ShipViewBuilder
     ) as Box<View<_>>;
     let mut time = timer.ticks();
 
@@ -70,25 +71,24 @@ fn main() {
         let new_keys = events.pump(&keys);
 
         {
-            let context =
+            let mut context =
                 Context {
-                    time: GameTime {
-                        elapsed: elapsed,
-                        total: now,
-                    },
                     events: KeyEvents::new(
                         keys.clone(),
                         new_keys.clone(),
                     ),
                     renderer: &mut renderer,
+                    font_cache: &mut font_cache,
                 };
 
             if context.events.down.quit { break; }
 
-            match state.render(context) {
-                Some(Action::Quit) => break,
-                Some(Action::ChangeView(next)) => state = next,
-                None => { }
+            match state.render(&mut context, elapsed) {
+                Some(Action::Quit) =>
+                    break,
+                Some(Action::ChangeView(next)) =>
+                    state = next.build_view(&mut context),
+                None => {},
             }
         }
 

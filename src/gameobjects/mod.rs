@@ -39,6 +39,7 @@ impl<P: Clone, S: Clone> Rectangle<P, S> {
     }
 }
 
+#[allow(overlapping_inherent_impls)]
 impl<O, P: Copy + Add<S, Output=O>, S: Copy> Rectangle<P, S> {
     pub fn left(&self) -> P { self.x }
     pub fn right(&self) -> O { self.x + self.width }
@@ -46,6 +47,7 @@ impl<O, P: Copy + Add<S, Output=O>, S: Copy> Rectangle<P, S> {
     pub fn bottom(&self) -> O { self.y + self.height }
 }
 
+#[allow(overlapping_inherent_impls)]
 impl Dest {
     pub fn left(&self) -> i32 { self.x }
     pub fn right(&self) -> i32 { self.x + self.width as i32 }

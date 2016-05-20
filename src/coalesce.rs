@@ -1,33 +1,33 @@
-pub trait Coelesce {
+pub trait Coalesce {
     type Output;
 
-    fn coelesce(self) -> Self::Output;
+    fn coalesce(self) -> Self::Output;
 }
 
-macro_rules! impl_coelesce {
+macro_rules! impl_coalesce {
     ($head:ident,) => {
-        impl<$head> Coelesce for (Option<$head>,) {
+        impl<$head> Coalesce for (Option<$head>,) {
             type Output = Option<($head,)>;
 
             #[allow(non_snake_case)]
-            fn coelesce(self) -> Self::Output {
+            fn coalesce(self) -> Self::Output {
                 self.0.map(|h| (h,))
             }
         }
     };
     ($head:ident, $( $rest:ident ,)+) => {
-        impl<$head $( , $rest )+> Coelesce for (
+        impl<$head $( , $rest )+> Coalesce for (
             Option<$head>,
             $( Option<$rest> ,)+
         ) {
             type Output = Option<($head, $( $rest ,)+)>;
 
             #[allow(non_snake_case)]
-            fn coelesce(self) -> Self::Output {
+            fn coalesce(self) -> Self::Output {
                 let ($head, $( $rest ,)+) = self;
 
                 $head.and_then(|$head|
-                    ($( $rest ,)+).coelesce().map(
+                    ($( $rest ,)+).coalesce().map(
                         |($( $rest ,)+)|
                             (
                                 $head,
@@ -40,8 +40,8 @@ macro_rules! impl_coelesce {
             }
         }
 
-        impl_coelesce!($( $rest ,)+);
+        impl_coalesce!($( $rest ,)+);
     };
 }
 
-impl_coelesce!(A, B, C, D, E, F, G, H, I, J, K,);
+impl_coalesce!(A, B, C, D, E, F, G, H, I, J, K,);

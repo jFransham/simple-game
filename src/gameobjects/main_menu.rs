@@ -1,46 +1,75 @@
 use ::lazy::Lazy;
-use ::coelesce::Coelesce;
+use ::time::TimeExtensions;
+use ::coalesce::Coalesce;
 use ::events::Keys;
-use ::view::{Context, View, Action};
-use ::graphics::sprites::{CopySprite, Sprite};
+use ::view::{Context, View, ViewBuilder, Action};
+use ::graphics::sprites::{LoadSprite, CopySprite, Sprite};
 use ::graphics::font_cache::FontCache;
-use ::gameobjects::player::ShipView;
+use ::gameobjects::background::ParallaxSet;
+use ::gameobjects::player::*;
 use ::gameobjects::Dest;
 
 use std::marker::PhantomData;
 use std::boxed::FnBox;
-use sdl2_ttf::{self, Font};
+use sdl2_ttf::Font;
 use sdl2::render::{Texture, Renderer};
 use sdl2::pixels::Color;
 
-#[derive(Clone)]
-pub struct Menu<I, T, F: FnOnce() -> T = Box<FnBox() -> T>>
-    where for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T, F>>
+pub type Background = [([f64; 2], [f64; 2], Sprite<Texture>); 3];
+
+pub struct Menu<
+    Time: TimeExtensions,
+    I,
+    B,
+    T,
+    F: FnOnce() -> T = Box<FnBox() -> T>
+> where
+    for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T, F>>,
+    for<'a> &'a B: IntoIterator<Item=&'a ([f64; 2], [f64; 2], Sprite<Texture>)>
 {
     pub items: I,
+    background: ParallaxSet<Time, Texture, B>,
+    total_time: u32,
+    count: usize,
     selected: usize,
     _phantom_v: PhantomData<T>,
     _phantom_f: PhantomData<F>,
 }
 
-impl<I, F: FnOnce() -> Action<Keys>>
-    View<Keys> for Menu<I, Action<Keys>, F>
+impl<I, B, F: FnOnce() -> Action<Keys>>
+    View<Keys> for Menu<u32, I, B, Action<Keys>, F>
     where
-        for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<Action<Keys>, F>>
+        for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<Action<Keys>, F>>,
+        for<'a> &'a B: IntoIterator<Item=&'a ([f64; 2], [f64; 2], Sprite<Texture>)>
 {
-    fn render(&mut self, context: Context<Keys>) -> Option<Action<Keys>> {
-        let y_offset = 150;
-        let y_gutter = 70;
-
-        let mut len = 0;
-
+    fn render(
+        &mut self,
+        context: &mut Context<Keys>,
+        elapsed: u32
+    ) -> Option<Action<Keys>> {
         context.renderer.set_draw_color(Color::RGB(0, 0, 0));
         context.renderer.clear();
 
+        self.total_time += elapsed;
+
+        let (screen_w, screen_h) = context.renderer.output_size().unwrap();
+
+        let y_gutter = 70;
+        let y_offset = (screen_h as usize - y_gutter * self.count) / 2;
+
+        let screen = Dest::default().with_size(screen_w, screen_h);
+
+        for (sprite, dest) in self.background.get_destinations(
+            screen,
+            self.total_time
+        ) {
+            context.renderer.copy_sprite(
+                &sprite,
+                dest
+            );
+        }
 
         for (i, item) in self.items.into_iter().enumerate() {
-            len += 1;
-
             let sprite = if i == self.selected {
                 if context.events.down.space {
                     return item.on_select.take().map(|a| a.consume());
@@ -51,12 +80,10 @@ impl<I, F: FnOnce() -> Action<Keys>>
                 &item.idle_sprite
             };
 
-            let (w, h) = context.renderer.output_size().unwrap();
-
             context.renderer.copy_sprite(
                 sprite,
                 Dest {
-                    x: ((w - sprite.mask.width) / 2) as _,
+                    x: ((screen_w - sprite.mask.width) / 2) as _,
                     y:
                         (y_offset + y_gutter * i) as i32 -
                         (sprite.mask.height / 2) as i32,
@@ -70,23 +97,54 @@ impl<I, F: FnOnce() -> Action<Keys>>
             if context.events.pressed.down {
                 self.selected + 1
             } else if context.events.pressed.up {
-                (self.selected + len) - 1
+                (self.selected + self.count) - 1
             } else {
                 self.selected
             }
-        ) % len;
+        ) % self.count;
 
         None
     }
 }
 
-impl<I, T, F: FnOnce() -> T>
-    Menu<I, T, F>
-    where for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T, F>>
+impl<Time: TimeExtensions + Copy + Default, I, T, F: FnOnce() -> T>
+    Menu<Time, I, [([f64; 2], [f64; 2], Sprite<Texture>); 3], T, F>
+    where
+        for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T, F>>,
 {
-    pub fn new(items: I) -> Self {
+    pub fn new(renderer: &mut Renderer, mut items: I) -> Self {
+        let count = (&mut items).into_iter().count();
+
         Menu {
             items: items,
+            background: ParallaxSet::new(
+                [
+                    (
+                        [-200.0, 0.0],
+                        [0.0, 0.0],
+                        renderer.load_sprite(
+                            "assets/spaceBG.png"
+                        ).unwrap()
+                    ),
+                    (
+                        [-400.0, 0.0],
+                        [0.0, 30.0],
+                        renderer.load_sprite(
+                            "assets/spaceFG.png"
+                        ).unwrap()
+                    ),
+                    (
+                        [-500.0, 0.0],
+                        [0.0, 0.0],
+                        renderer.load_sprite(
+                            "assets/spaceFG.png"
+                        ).unwrap()
+                    ),
+                ],
+                Default::default()
+            ),
+            total_time: 0,
+            count: count,
             selected: 0,
             _phantom_v: PhantomData,
             _phantom_f: PhantomData,
@@ -119,7 +177,7 @@ fn get_sprites(
     (
         color_to_sprite(idle_color, fonts.0),
         color_to_sprite(hover_color, fonts.1),
-    ).coelesce().unwrap()
+    ).coalesce().unwrap()
 }
 
 impl<T, F: FnOnce() -> T> MenuItem<T, F> {
@@ -148,12 +206,44 @@ impl<T, F: FnOnce() -> T> MenuItem<T, F> {
     }
 }
 
+pub struct MainMenuBuilder;
+
+impl ViewBuilder<Keys> for MainMenuBuilder {
+    fn build_view(self: Box<Self>, context: &mut Context<Keys>)
+        -> Box<View<Keys>>
+    {
+        Box::new(
+            main_menu(context.renderer, context.font_cache, box ShipViewBuilder)
+        )
+    }
+}
+
+pub struct PauseMenuBuilder<T>(pub Box<View<T>>);
+
+impl ViewBuilder<Keys> for PauseMenuBuilder<Keys> {
+    fn build_view(self: Box<Self>, context: &mut Context<Keys>)
+        -> Box<View<Keys>>
+    {
+        let next = self.0;
+
+        Box::new(
+            main_menu(
+                context.renderer,
+                context.font_cache,
+                box move |_: &mut Context<Keys>| next
+            )
+        )
+    }
+}
+
 pub fn main_menu(
     renderer: &mut Renderer,
     cache: &mut FontCache,
-    view: Box<View<Keys>>
+    view: Box<ViewBuilder<Keys>>
 ) -> Menu<
+    u32,
     [MenuItem<Action<Keys>>; 2],
+    Background,
     Action<Keys>
 > {
     let path = "assets/belligerent.ttf";
@@ -165,20 +255,20 @@ pub fn main_menu(
     let font1 = cache.get(path, 38).unwrap();
     let fonts = (font0, font1);
 
-    Menu::new(
-        [
-            {
-                let (idle, hover) = get_sprites(renderer, "Play", fonts);
-                MenuItem::from_value(
-                    idle,
-                    hover,
-                    Action::ChangeView(view)
-                )
-            },
-            {
-                let (idle, hover) = get_sprites(renderer, "Quit", fonts);
-                MenuItem::from_value(idle, hover, Action::Quit)
-            },
-        ]
-    )
+    let items = [
+        {
+            let (idle, hover) = get_sprites(renderer, "Play", fonts);
+            MenuItem::from_value(
+                idle,
+                hover,
+                Action::ChangeView(view)
+            )
+        },
+        {
+            let (idle, hover) = get_sprites(renderer, "Quit", fonts);
+            MenuItem::from_value(idle, hover, Action::Quit)
+        },
+    ];
+
+    Menu::new(renderer, items)
 }

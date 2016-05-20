@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::Path;
 use sdl2_ttf::{Sdl2TtfContext, Font};
 
 pub struct FontCache<'a> {

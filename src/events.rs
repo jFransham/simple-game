@@ -30,7 +30,7 @@ pub struct EventStream<T: KeySet> {
     _out: PhantomData<T>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct GameTime {
     pub elapsed: u32,
     pub total: u32,
