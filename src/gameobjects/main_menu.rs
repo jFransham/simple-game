@@ -3,7 +3,7 @@ use ::time::TimeExtensions;
 use ::coalesce::Coalesce;
 use ::events::Keys;
 use ::view::{Context, View, ViewBuilder, Action};
-use ::graphics::sprites::{LoadSprite, CopySprite, Sprite};
+use ::graphics::sprites::{LoadSprite, CopyRenderable, Sprite};
 use ::graphics::font_cache::FontCache;
 use ::gameobjects::background::ParallaxSet;
 use ::gameobjects::player::*;
@@ -63,7 +63,7 @@ impl<I, B, F: FnOnce() -> Action<Keys>>
             screen,
             self.total_time
         ) {
-            context.renderer.copy_sprite(
+            context.renderer.copy_renderable(
                 &sprite,
                 dest
             );
@@ -80,7 +80,7 @@ impl<I, B, F: FnOnce() -> Action<Keys>>
                 &item.idle_sprite
             };
 
-            context.renderer.copy_sprite(
+            context.renderer.copy_renderable(
                 sprite,
                 Dest {
                     x: ((screen_w - sprite.mask.width) / 2) as _,

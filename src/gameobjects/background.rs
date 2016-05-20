@@ -42,7 +42,6 @@ impl<
 
     pub fn get_destinations(
         &self,
-        dest: Dest,
         screen: Dest,
         now: Time
     ) -> Vec<(Sprite<T>, Dest)> {
@@ -57,7 +56,7 @@ impl<
                 (s, [(x + dx) as _, (y + dy) as _])
             }
         ).flat_map(|(spr, [offset_x, offset_y])| {
-            let (spr_w, spr_h) = (dest.width, dest.height);
+            let (spr_w, spr_h) = (spr.mask.width, spr.mask.height);
 
             (offset_x..screen_w as i32).step_by(spr_w as i32)
                 .cartesian_product(

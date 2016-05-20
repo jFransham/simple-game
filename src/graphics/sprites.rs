@@ -7,6 +7,7 @@ use std::hash::Hash;
 use std::path::Path;
 use std::collections::HashMap;
 use sdl2::render::{TextureQuery, Texture, Renderer};
+use sdl2::pixels::Color;
 use sdl2_image::LoadTexture;
 use itertools::*;
 
@@ -14,17 +15,54 @@ pub trait GetSize {
     fn size(&self) -> [u32; 2];
 }
 
-pub trait CopySprite<T: GetSize> {
-    fn copy_sprite(&mut self, sprite: &Sprite<T>, dest: Dest);
+pub trait CopyRenderable<T> {
+    fn copy_renderable(&mut self, sprite: &T, dest: Dest);
 }
 
-impl<'a> CopySprite<Texture> for Renderer<'a> {
-    fn copy_sprite(&mut self, sprite: &Sprite<Texture>, dest: Dest) {
+impl<'a> CopyRenderable<Sprite<Texture>> for Renderer<'a> {
+    fn copy_renderable(&mut self, sprite: &Sprite<Texture>, dest: Dest) {
         self.copy(
             &sprite.texture,
             Some(sprite.mask.into()),
             Some(dest.into())
         );
+    }
+}
+
+impl<'a> CopyRenderable<VisibleRect> for Renderer<'a> {
+    fn copy_renderable(
+        &mut self,
+        &VisibleRect(color): &VisibleRect,
+        dest: Dest
+    ) {
+        self.set_draw_color(color);
+
+        self.fill_rect(dest.into());
+    }
+}
+
+impl<'a> CopyRenderable<VisibleComponent<Texture>> for Renderer<'a> {
+    fn copy_renderable(
+        &mut self,
+        comp: &VisibleComponent<Texture>,
+        dest: Dest
+    ) {
+        match comp {
+            &VisibleComponent::Sprite(ref spr) =>
+                self.copy_renderable(spr, dest),
+            &VisibleComponent::Rectangle(ref rect) =>
+                self.copy_renderable(rect, dest),
+        }
+    }
+}
+
+pub trait Renderable<T> {
+    fn render(&self, renderer: &mut T, dest: Dest);
+}
+
+impl<'a, T> Renderable<Renderer<'a>> for T where Renderer<'a>: CopyRenderable<T> {
+    fn render(&self, renderer: &mut Renderer<'a>, dest: Dest) {
+        renderer.copy_renderable(self, dest);
     }
 }
 
@@ -67,12 +105,29 @@ pub fn build_spritesheet<T: GetSize, RcT: Into<Rc<T>>>(
 }
 
 #[derive(Debug)]
-pub struct Image<T: GetSize> {
+pub struct Sprite<T: GetSize> {
     pub texture: Rc<T>,
     pub mask: Clip,
 }
 
-pub struct Rectangle(Color);
+pub struct VisibleRect(pub Color);
+
+pub enum VisibleComponent<T: GetSize> {
+    Sprite(Sprite<T>),
+    Rectangle(VisibleRect),
+}
+
+impl<T: GetSize> From<Sprite<T>> for VisibleComponent<T> {
+    fn from(sprite: Sprite<T>) -> Self {
+        VisibleComponent::Sprite(sprite)
+    }
+}
+
+impl<T: GetSize> From<VisibleRect> for VisibleComponent<T> {
+    fn from(rect: VisibleRect) -> Self {
+        VisibleComponent::Rectangle(rect)
+    }
+}
 
 impl<T: GetSize> Clone for Sprite<T> {
     fn clone(&self) -> Self {

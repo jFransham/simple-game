@@ -6,13 +6,17 @@ use ::view::*;
 use ::graphics::sprites::{
     build_spritesheet,
     AnimatedSprite,
+    VisibleComponent,
+    VisibleRect,
     LoadSprite,
     Sprite,
-    CopySprite,
+    CopyRenderable,
     GetSize,
 };
 use ::time::*;
+use ::set::Set;
 
+use std::convert::TryInto;
 use std::collections::HashMap;
 use sdl2::pixels::Color;
 use sdl2::render::{Texture, Renderer};
@@ -61,7 +65,7 @@ static ALL_FRAMES: [ShipFrame; 9] = [
 
 pub enum GameAction<K: KeySet, T: GetSize> {
     Delete,
-    ChangeView(Vec<Box<GameObject<K, T>>>),
+    AddObjects(Vec<Box<GameObject<K, T>>>),
 }
 
 pub trait GameObject<K: KeySet, T: GetSize> {
@@ -70,13 +74,90 @@ pub trait GameObject<K: KeySet, T: GetSize> {
         context: &mut Context<K>,
         time: GameTime
     ) -> Option<GameAction<K, T>>;
-    fn sprites(&self, time: GameTime) -> Vec<&Sprite<T>>;
+    fn sprites(&self, time: GameTime) -> Vec<(VisibleComponent<Texture>, Dest)>;
     fn bounds(&self) -> &Bounds;
 }
 
 pub struct Ship {
     pub bounds: Bounds,
+    pub dpos: [f64; 2],
     pub sprites: HashMap<ShipFrame, Sprite<Texture>>,
+}
+
+impl Ship {
+    fn spawn_bullets(&self) -> Vec<Box<GameObject<Keys, Texture>>> {
+        let cannons_x = self.bounds.x + 30.0;
+        let cannon1_y = self.bounds.y + 6.0;
+        let cannon2_y = self.bounds.y + self.bounds.height - 10.0;
+
+        vec![
+            box Bullet::new([cannons_x, cannon1_y]),
+            box Bullet::new([cannons_x, cannon2_y]),
+        ]
+    }
+}
+
+impl GameObject<Keys, Texture> for Ship {
+    fn update(
+        &mut self,
+        context: &mut Context<Keys>,
+        time: GameTime
+    ) -> Option<GameAction<Keys, Texture>> {
+        let player_speed = 230.0;
+
+        let dt = time.elapsed.exact_seconds();
+
+        let (sw, sh) = context.renderer.output_size().map(
+            |(a, b)| (a as f64, b as f64)
+        ).unwrap();
+
+        let [dx, dy] = {
+            let keys = &context.events.down;
+
+            get_control(
+                keys.up,
+                keys.down,
+                keys.left,
+                keys.right,
+            )
+        };
+
+        self.dpos = [dx, dy];
+
+        self.bounds.x += self.dpos[0] * dt * player_speed;
+        self.bounds.y += self.dpos[1] * dt * player_speed;
+
+        self.bounds = self.bounds.move_inside(
+            &Bounds {
+                width: sw,
+                height: sh,
+                .. Default::default()
+            }
+        ).unwrap();
+
+        if context.events.pressed.space {
+            Some(GameAction::AddObjects(self.spawn_bullets()))
+        } else {
+            None
+        }
+    }
+
+    fn sprites(&self, time: GameTime)
+        -> Vec<(VisibleComponent<Texture>, Dest)>
+    {
+        vec![
+            (
+                self.sprites[
+                    &get_frame(
+                        [self.dpos[0], self.dpos[1]]
+                    )
+                ].clone().into(),
+                self.bounds.try_into().unwrap(),
+            )
+        ]
+    }
+
+    fn bounds(&self) -> &Bounds { &self.bounds }
 }
 
 pub struct Asteroid {
@@ -90,15 +171,24 @@ impl GameObject<Keys, Texture> for Asteroid {
         &mut self,
         context: &mut Context<Keys>,
         time: GameTime
-    ) -> Option<GameAction<K, T>> {
+    ) -> Option<GameAction<Keys, Texture>> {
         let elapsed = time.elapsed.exact_seconds();
 
         self.bounds.x += self.velocity[0] * elapsed;
         self.bounds.y += self.velocity[1] * elapsed;
+
+        None
     }
 
-    fn sprites(&self, time: GameTime) -> Vec<&Sprite<Texture>> {
-        vec![self.sprite.frame(time.total)]
+    fn sprites(&self, time: GameTime)
+        -> Vec<(VisibleComponent<Texture>, Dest)>
+    {
+        vec![
+            (
+                self.sprite.frame(time.total).clone().into(),
+                self.bounds.try_into().unwrap(),
+            )
+        ]
     }
 
     fn bounds(&self) -> &Bounds { &self.bounds }
@@ -143,6 +233,7 @@ impl Asteroid {
 
 pub struct Bullet {
     pub bounds: Bounds,
+    pub velocity: [f64; 2],
 }
 
 impl Bullet {
@@ -154,6 +245,7 @@ impl Bullet {
                 width: 8.0,
                 height: 4.0,
             },
+            velocity: [500.0, 0.0],
         }
     }
 }
@@ -163,15 +255,32 @@ impl GameObject<Keys, Texture> for Bullet {
         &mut self,
         context: &mut Context<Keys>,
         time: GameTime
-    ) -> Option<GameAction<K, T>> {
+    ) -> Option<GameAction<Keys, Texture>> {
         let elapsed = time.elapsed.exact_seconds();
 
         self.bounds.x += self.velocity[0] * elapsed;
         self.bounds.y += self.velocity[1] * elapsed;
+
+        let screen = context.renderer.output_size().map(
+            |(w, h)| Bounds::default().with_size(w as _, h as _)
+        ).unwrap();
+
+        if self.bounds.intersects(&screen) {
+            None
+        } else {
+            Some(GameAction::Delete)
+        }
     }
 
-    fn sprites(&self, time: GameTime) -> Vec<&Sprite<Texture>> {
-        vec![self.sprite.frame(time.total)]
+    fn sprites(&self, time: GameTime)
+        -> Vec<(VisibleComponent<Texture>, Dest)>
+    {
+        vec![
+            (
+                VisibleRect(Color::RGB(230, 230, 30)).into(),
+                self.bounds.try_into().unwrap(),
+            )
+        ]
     }
 
     fn bounds(&self) -> &Bounds { &self.bounds }
@@ -180,7 +289,7 @@ impl GameObject<Keys, Texture> for Bullet {
 pub struct ShipView {
     player: Ship,
     asteroids: Vec<Asteroid>,
-    bullets: Vec<Bullet>,
+    bullets: Vec<Box<GameObject<Keys, Texture>>>,
     background: Background,
     total_time: u32,
 }
@@ -273,6 +382,7 @@ impl ShipView {
                     x: 0.0,
                     y: 0.0,
                 },
+                dpos: [0.0, 0.0],
                 sprites: ALL_FRAMES.into_iter()
                     .cloned()
                     .zip(
@@ -365,6 +475,7 @@ impl View<Keys> for ShipView {
         use std::convert::TryInto;
 
         self.total_time += elapsed;
+
         let dt = elapsed.exact_seconds();
 
         let game_time = GameTime {
@@ -372,22 +483,9 @@ impl View<Keys> for ShipView {
             total: self.total_time,
         };
 
-        let player_speed = 230.0;
-
         if context.events.down.quit {
             return Some(Action::Quit);
         }
-
-        let [dx, dy] = {
-            let keys = &context.events.down;
-
-            get_control(
-                keys.up,
-                keys.down,
-                keys.left,
-                keys.right,
-            )
-        };
 
         let (sw, sh) = context.renderer.output_size().map(
             |(a, b)| (a as f64, b as f64)
@@ -395,26 +493,26 @@ impl View<Keys> for ShipView {
 
         for asteroid in &mut self.asteroids {
             asteroid.update(context, game_time);
-
-            asteroid.bounds = asteroid.bounds.move_inside(
-                &Bounds {
-                    width: sw,
-                    height: sh,
-                    .. Default::default()
-                }
-            ).unwrap();
         }
 
-        self.player.bounds.x += dx * dt * player_speed;
-        self.player.bounds.y += dy * dt * player_speed;
-
-        self.player.bounds = self.player.bounds.move_inside(
-            &Bounds {
-                width: sw,
-                height: sh,
-                .. Default::default()
+        let bullets = self.bullets.drain(..).filter_map(
+            |mut bullet| if let Some(GameAction::Delete) = bullet.update(
+                context,
+                game_time
+            ) {
+                None
+            } else {
+                Some(bullet)
             }
-        ).unwrap();
+        ).collect();
+
+        self.bullets = bullets;
+
+        match self.player.update(context, game_time) {
+            Some(GameAction::AddObjects(v)) =>
+                self.bullets.extend(v),
+            _ => {},
+        }
 
         context.renderer.set_draw_color(Color::RGB(0, 0, 0));
         context.renderer.clear();
@@ -426,22 +524,14 @@ impl View<Keys> for ShipView {
         for (sprite, dest) in self.background.get_destinations(
             screen,
             self.total_time
-        ).into_iter().chain(
-            Some(
-                (
-                    self.player.sprites[&get_frame([dx, dy])].clone(),
-                    self.player.bounds.try_into().unwrap(),
-                )
-            ).into_iter()
+        ).into_iter().map(|(s, d)| (s.into(), d)).chain(
+            self.player.sprites(game_time).into_iter()
         ).chain(
-            self.asteroids.iter().map(|a|
-                (
-                    a.sprite.frame(self.total_time).clone(),
-                    a.bounds.try_into().unwrap(),
-                )
-            )
+            self.asteroids.iter().flat_map(|a| a.sprites(game_time).into_iter())
+        ).chain(
+            self.bullets.iter().flat_map(|a| a.sprites(game_time).into_iter())
         ) {
-            context.renderer.copy_sprite(
+            context.renderer.copy_renderable(
                 &sprite,
                 dest
             );
