@@ -1,4 +1,4 @@
-use ::events::{KeySet, GameTime};
+use ::events::KeySet;
 use ::graphics::font_cache::FontCache;
 use sdl2::render::Renderer;
 
@@ -37,10 +37,12 @@ pub trait View<T: KeySet> {
     fn render(&mut self, context: &mut Context<T>, elapsed: u32) -> Option<Action<T>>;
 }
 
+#[allow(boxed_local)]
 pub trait ViewBuilder<T: KeySet> {
     fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T>>;
 }
 
+#[allow(boxed_local)]
 impl<T: KeySet, F: FnOnce(&mut Context<T>) -> Box<View<T>>>
     ViewBuilder<T> for F
 {

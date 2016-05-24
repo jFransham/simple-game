@@ -1,4 +1,3 @@
-#![feature(fnbox)]
 #![feature(box_syntax)]
 #![feature(type_ascription)]
 #![feature(try_from)]
@@ -7,12 +6,11 @@
 #![feature(slice_patterns)]
 #![feature(zero_one)]
 
-#![allow(boxed_local)]
-
 extern crate sdl2;
 extern crate sdl2_image;
 extern crate sdl2_ttf;
 extern crate itertools;
+extern crate rand;
 
 #[macro_use]
 mod macros;
@@ -22,8 +20,8 @@ mod time;
 mod gameobjects;
 mod set;
 mod graphics;
-mod lazy;
 mod coalesce;
+mod split_iterator;
 
 use graphics::font_cache::FontCache;
 use gameobjects::player::*;
@@ -41,7 +39,6 @@ fn main() {
         .window("Test game", 800, 600)
         .position_centered()
         .opengl()
-        .resizable()
         .build()
         .unwrap();
 

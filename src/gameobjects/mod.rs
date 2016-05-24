@@ -55,7 +55,7 @@ impl Dest {
     pub fn bottom(&self) -> i32 { self.y + self.height as i32 }
 }
 
-trait MinMax {
+pub trait MinMax {
     fn min(self, other: Self) -> Self;
     fn max(self, other: Self) -> Self;
 }

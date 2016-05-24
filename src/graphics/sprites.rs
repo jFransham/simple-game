@@ -37,7 +37,7 @@ impl<'a> CopyRenderable<VisibleRect> for Renderer<'a> {
     ) {
         self.set_draw_color(color);
 
-        self.fill_rect(dest.into());
+        self.fill_rect(dest.into()).unwrap();
     }
 }
 
@@ -47,10 +47,10 @@ impl<'a> CopyRenderable<VisibleComponent<Texture>> for Renderer<'a> {
         comp: &VisibleComponent<Texture>,
         dest: Dest
     ) {
-        match comp {
-            &VisibleComponent::Sprite(ref spr) =>
+        match *comp {
+            VisibleComponent::Sprite(ref spr) =>
                 self.copy_renderable(spr, dest),
-            &VisibleComponent::Rectangle(ref rect) =>
+            VisibleComponent::Rectangle(ref rect) =>
                 self.copy_renderable(rect, dest),
         }
     }
@@ -205,8 +205,6 @@ pub struct Animation<AIdx> {
     pub frames: Vec<AIdx>,
 }
 
-pub struct SpriteSet<Idx: Eq + Hash, T: GetSize>(HashMap<Idx, Sprite<T>>);
-
 impl<Idx, I: IntoIterator<Item=Idx>> From<(f64, I)> for Animation<Idx> {
     fn from((fps, iter): (f64, I)) -> Self {
         Animation {
@@ -285,7 +283,21 @@ impl<
         self.current = (now, new);
     }
 
+    pub fn completed(&self, now: Time) -> bool {
+        let anim = &self.animations.0[&self.current.1];
+        let start = self.current.0.clone().exact_seconds();
+
+        let len = anim.frames.len();
+        let fps = anim.fps;
+
+        now.exact_seconds() - start > len as f64 / fps
+    }
+
     pub fn frame(&self, now: Time) -> &Sprite<T> {
+        &self.sprites[self.frame_index(now)]
+    }
+
+    fn frame_index(&self, now: Time) -> AIdx {
         let anim = &self.animations.0[&self.current.1];
 
         let tick_diff =
@@ -293,8 +305,6 @@ impl<
 
         let frame_num = tick_diff * anim.fps;
 
-        let frame = anim.frames[frame_num as usize % anim.frames.len()].clone();
-
-        &self.sprites[frame]
+        anim.frames[frame_num as usize % anim.frames.len()].clone()
     }
 }

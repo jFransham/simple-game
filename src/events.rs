@@ -17,7 +17,8 @@ key_set! {
             down: Down,
             left: Left,
             right: Right,
-            space: Space,
+            fire: Space | Return,
+            next_weapon: PageUp,
         },
         else: {
             quit: Quit { .. },
