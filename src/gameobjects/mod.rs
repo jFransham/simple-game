@@ -2,18 +2,130 @@ pub mod player;
 pub mod main_menu;
 pub mod background;
 
-use ::set::Set;
+use ::set::{Set, Intersects};
 
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::ops::{Add, Sub};
 use std::num::Zero;
 use sdl2::rect::Rect as SdlRect;
 
-pub type Bounds = Rectangle<f64>;
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Bounds {
+    Rectangle(BoundingRect),
+    Circle(Circle<f64>),
+}
+
+impl Bounds {
+    pub fn left(&self) -> f64 {
+        use self::Bounds::*;
+
+        match *self {
+            Rectangle(ref b) => b.left(),
+            Circle(ref c) => c.left(),
+        }
+    }
+
+    pub fn right(&self) -> f64 {
+        use self::Bounds::*;
+
+        match *self {
+            Rectangle(ref b) => b.right(),
+            Circle(ref c) => c.right(),
+        }
+    }
+
+    pub fn top(&self) -> f64 {
+        use self::Bounds::*;
+
+        match *self {
+            Rectangle(ref b) => b.top(),
+            Circle(ref c) => c.top(),
+        }
+    }
+
+    pub fn bottom(&self) -> f64 {
+        use self::Bounds::*;
+
+        match *self {
+            Rectangle(ref b) => b.bottom(),
+            Circle(ref c) => c.bottom(),
+        }
+    }
+}
+
+fn rectangle_intersects_circle(c: &Circle<f64>, r: &Rectangle<f64>) -> bool {
+    let (test_x, test_y) = (
+        c.x.limit(r.left(), r.right()),
+        c.y.limit(r.top(), r.bottom()),
+    );
+
+    let (dx, dy) = (c.x - test_x, c.y - test_y);
+
+    let dist_squared = dx * dx + dy * dy;
+
+    dist_squared < c.radius * c.radius
+}
+
+impl Intersects for Bounds {
+    fn intersects(&self, other: &Self) -> bool {
+        use self::Bounds::*;
+
+        match (*self, *other) {
+            (Rectangle(ref a), Rectangle(ref b)) => a.intersects(b),
+            (Circle(ref a), Circle(ref b)) => a.intersects(b),
+            (
+                Rectangle(ref a), Circle(ref b)
+            ) | (
+                Circle(ref b), Rectangle(ref a)
+            ) => rectangle_intersects_circle(b, a),
+        }
+    }
+}
+
+impl Intersects for Circle<f64> {
+    fn intersects(&self, other: &Self) -> bool {
+        let (dx, dy) = (self.x - other.x, self.y - other.y);
+        let dist_squared = dx * dx + dy * dy;
+        let total_rad = self.radius + other.radius;
+        let total_rad_squared = total_rad * total_rad;
+
+        dist_squared < total_rad_squared
+    }
+}
+
+impl From<Rectangle<f64>> for Bounds {
+    fn from(r: Rectangle<f64>) -> Self {
+        Bounds::Rectangle(r)
+    }
+}
+
+impl From<Circle<f64>> for Bounds {
+    fn from(c: Circle<f64>) -> Self {
+        Bounds::Circle(c)
+    }
+}
+
+pub type BoundingRect = Rectangle<f64>;
 pub type Clip = Rectangle<u32>;
 pub type Dest = Rectangle<i32, u32>;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Circle<P, S=P> {
+    pub x: P,
+    pub y: P,
+    pub radius: S,
+}
+
+impl<
+    T: Copy + Add<T, Output=T> + Sub<T, Output=T>
+> Circle<T> {
+    pub fn left(&self) -> T { self.x - self.radius }
+    pub fn right(&self) -> T { self.x + self.radius }
+    pub fn top(&self) -> T { self.y - self.radius }
+    pub fn bottom(&self) -> T { self.y + self.radius }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rectangle<P, S=P> {
     pub x: P,
     pub y: P,
@@ -55,9 +167,12 @@ impl Dest {
     pub fn bottom(&self) -> i32 { self.y + self.height as i32 }
 }
 
-pub trait MinMax {
+pub trait MinMax: Sized {
     fn min(self, other: Self) -> Self;
     fn max(self, other: Self) -> Self;
+    fn limit(self, min: Self, max: Self) -> Self {
+        self.max(min).min(max)
+    }
 }
 
 impl<T: PartialOrd> MinMax for T {
@@ -112,11 +227,11 @@ impl<
     }
 }
 
-impl Default for Bounds {
+impl Default for BoundingRect {
     fn default() -> Self {
         use std::f64;
 
-        Bounds {
+        BoundingRect {
             x: 0.0,
             y: 0.0,
             width: f64::NAN,
@@ -234,10 +349,10 @@ impl<
     }
 }
 
-impl TryFrom<Bounds> for SdlRect {
+impl TryFrom<BoundingRect> for SdlRect {
     type Err = ();
 
-    fn try_from(bounds: Bounds) -> Result<SdlRect, ()> {
+    fn try_from(bounds: BoundingRect) -> Result<SdlRect, ()> {
         use std::i32::MAX as IMAX;
         use std::u32::MAX as UMAX;
         let (imax, umax) = (IMAX as f64, UMAX as f64);
@@ -264,10 +379,43 @@ impl TryFrom<Bounds> for SdlRect {
     }
 }
 
+impl TryFrom<Bounds> for SdlRect {
+    type Err = ();
+
+    fn try_from(bounds: Bounds) -> Result<Self, ()> {
+        match bounds {
+            Bounds::Rectangle(rect) => rect.try_into(),
+            _ => Err(()),
+        }
+    }
+}
+
 impl TryFrom<Bounds> for Clip {
     type Err = ();
 
-    fn try_from(bounds: Bounds) -> Result<Clip, ()> {
+    fn try_from(bounds: Bounds) -> Result<Self, ()> {
+        match bounds {
+            Bounds::Rectangle(rect) => rect.try_into(),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<Bounds> for Dest {
+    type Err = ();
+
+    fn try_from(bounds: Bounds) -> Result<Self, ()> {
+        match bounds {
+            Bounds::Rectangle(rect) => rect.try_into(),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<BoundingRect> for Clip {
+    type Err = ();
+
+    fn try_from(bounds: BoundingRect) -> Result<Clip, ()> {
         use std::i32::MAX as IMAX;
         use std::u32::MAX as UMAX;
         let (imax, umax) = (IMAX as f64, UMAX as f64);
@@ -294,10 +442,10 @@ impl TryFrom<Bounds> for Clip {
     }
 }
 
-impl TryFrom<Bounds> for Dest {
+impl TryFrom<BoundingRect> for Dest {
     type Err = ();
 
-    fn try_from(bounds: Bounds) -> Result<Dest, ()> {
+    fn try_from(bounds: BoundingRect) -> Result<Dest, ()> {
         use std::i32::MAX as IMAX;
         use std::u32::MAX as UMAX;
         let (imax, umax) = (IMAX as f64, UMAX as f64);

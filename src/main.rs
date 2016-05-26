@@ -11,6 +11,7 @@ extern crate sdl2_image;
 extern crate sdl2_ttf;
 extern crate itertools;
 extern crate rand;
+extern crate chrono;
 
 #[macro_use]
 mod macros;
@@ -22,18 +23,20 @@ mod set;
 mod graphics;
 mod coalesce;
 mod split_iterator;
+mod fixed_size_iter;
 
 use graphics::font_cache::FontCache;
+use graphics::sprites::CopyRenderable;
 use gameobjects::player::*;
 use gameobjects::main_menu::main_menu;
 use events::*;
 use view::*;
+use chrono::{UTC, Duration};
 
 fn main() {
     let sdl = sdl2::init().unwrap();
     let sdl_ttf = sdl2_ttf::init().unwrap();
     let video = sdl.video().unwrap();
-    let mut timer = sdl.timer().unwrap();
 
     let window = video
         .window("Test game", 800, 600)
@@ -56,14 +59,15 @@ fn main() {
         &mut renderer,
         &mut font_cache,
         box ShipViewBuilder
-    ) as Box<View<_>>;
-    let mut time = timer.ticks();
+    ) as Box<View<_, _>>;
+    let mut time = UTC::now();
 
-    let target_ms_per_frame = 1_000 / 60;
+    let target_ms_per_frame = Duration::milliseconds(1_000 / 60);
 
     loop {
-        let now = timer.ticks();
+        let now = UTC::now();
         let elapsed = now - time;
+        let elapsed_ms = elapsed.num_milliseconds() as u32;
 
         let new_keys = events.pump(&keys);
 
@@ -80,22 +84,37 @@ fn main() {
 
             if context.events.down.quit { break; }
 
-            match state.render(&mut context, elapsed) {
-                Some(Action::Quit) =>
+            let next_state = match state.update(&mut context, elapsed_ms) {
+                Action::Quit =>
                     break,
-                Some(Action::ChangeView(next)) =>
-                    state = next.build_view(&mut context),
-                None => {},
+                Action::ChangeView(next) =>
+                    Some(next.build_view(&mut context)),
+                Action::Render(vec) => {
+                    for (sprite, dest) in vec {
+                        context.renderer.copy_renderable(
+                            &sprite,
+                            dest
+                        );
+                    }
+
+                    None
+                },
+            };
+
+            if let Some(n) = next_state {
+                state = n;
             }
         }
 
         renderer.present();
 
+        if elapsed < target_ms_per_frame {
+            use std::thread;
+
+            thread::sleep((target_ms_per_frame - elapsed).to_std().unwrap());
+        }
+
         time = now;
         keys = new_keys;
-
-        if elapsed < target_ms_per_frame {
-            timer.delay(target_ms_per_frame - elapsed);
-        }
     }
 }

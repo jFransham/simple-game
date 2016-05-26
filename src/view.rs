@@ -1,10 +1,14 @@
 use ::events::KeySet;
 use ::graphics::font_cache::FontCache;
+use ::graphics::sprites::Renderable;
+use ::gameobjects::Dest;
+
 use sdl2::render::Renderer;
 
-pub enum Action<T: KeySet> {
+pub enum Action<'a, T: KeySet, R: Renderable<Renderer<'a>>> {
     Quit,
-    ChangeView(Box<ViewBuilder<T>>),
+    ChangeView(Box<ViewBuilder<T, R>>),
+    Render(Box<Iterator<Item=(R, Dest)> + 'a>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -33,20 +37,29 @@ pub struct Context<'a, 'b: 'a, T: KeySet> {
     pub font_cache: &'a mut FontCache<'b>,
 }
 
-pub trait View<T: KeySet> {
-    fn render(&mut self, context: &mut Context<T>, elapsed: u32) -> Option<Action<T>>;
+pub trait View<T: KeySet, R: for<'a> Renderable<Renderer<'a>>> {
+    fn update(
+        &mut self,
+        context: &mut Context<T>,
+        elapsed: u32
+    ) -> Action<T, R>;
 }
 
 #[allow(boxed_local)]
-pub trait ViewBuilder<T: KeySet> {
-    fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T>>;
+pub trait ViewBuilder<T: KeySet, R: for<'a> Renderable<Renderer<'a>>> {
+    fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T, R>>;
 }
 
 #[allow(boxed_local)]
-impl<T: KeySet, F: FnOnce(&mut Context<T>) -> Box<View<T>>>
-    ViewBuilder<T> for F
-{
-    fn build_view(self: Box<Self>, context: &mut Context<T>) -> Box<View<T>> {
+impl<
+    T: KeySet,
+    R: for<'a> Renderable<Renderer<'a>>,
+    F: FnOnce(&mut Context<T>) -> Box<View<T, R>>
+> ViewBuilder<T, R> for F {
+    fn build_view(
+        self: Box<Self>,
+        context: &mut Context<T>
+    ) -> Box<View<T, R>> {
         self(context)
     }
 }

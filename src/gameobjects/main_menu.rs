@@ -2,7 +2,7 @@ use ::time::TimeExtensions;
 use ::coalesce::Coalesce;
 use ::events::Keys;
 use ::view::{Context, View, ViewBuilder, Action};
-use ::graphics::sprites::{LoadSprite, CopyRenderable, Sprite};
+use ::graphics::sprites::{LoadSprite, CopyRenderable, Sprite, VisibleComponent};
 use ::graphics::font_cache::FontCache;
 use ::gameobjects::background::ParallaxSet;
 use ::gameobjects::player::*;
@@ -21,7 +21,7 @@ pub struct Menu<
     B,
     T
 > where
-    for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T>>,
+    //for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<T>>,
     for<'a> &'a B: IntoIterator<Item=&'a ([f64; 2], [f64; 2], Sprite<Texture>)>
 {
     pub items: I,
@@ -32,16 +32,19 @@ pub struct Menu<
     _phantom_v: PhantomData<T>,
 }
 
-impl<I, B> View<Keys> for Menu<u32, I, B, Action<Keys>>
+impl<'any, I, B> View<Keys, VisibleComponent<Texture>>
+    for Menu<u32, I, B, Action<'any, Keys, VisibleComponent<Texture>>>
     where
-        for<'a> &'a mut I: IntoIterator<Item=&'a mut MenuItem<Action<Keys>>>,
+        for<'a> &'a mut I: IntoIterator<
+            Item=&'a mut MenuItem<Action<'any, Keys, VisibleComponent<Texture>>>
+        >,
         for<'a> &'a B: IntoIterator<Item=&'a ([f64; 2], [f64; 2], Sprite<Texture>)>
 {
-    fn render(
+    fn update(
         &mut self,
         context: &mut Context<Keys>,
         elapsed: u32
-    ) -> Option<Action<Keys>> {
+    ) -> Action<Keys, VisibleComponent<Texture>> {
         context.renderer.set_draw_color(Color::RGB(0, 0, 0));
         context.renderer.clear();
 
@@ -64,28 +67,15 @@ impl<I, B> View<Keys> for Menu<u32, I, B, Action<Keys>>
             );
         }
 
-        for (i, item) in self.items.into_iter().enumerate() {
-            let sprite = if i == self.selected {
-                if context.events.down.fire {
-                    return item.on_select.take();
-                }
-
-                &item.hover_sprite
-            } else {
-                &item.idle_sprite
-            };
-
-            context.renderer.copy_renderable(
-                sprite,
-                Dest {
-                    x: ((screen_w - sprite.mask.width) / 2) as _,
-                    y:
-                        (y_offset + y_gutter * i) as i32 -
-                        (sprite.mask.height / 2) as i32,
-                    width: sprite.mask.width,
-                    height: sprite.mask.height,
-                }
-            );
+        if context.events.down.fire {
+            if let Some(slct) = self.items.into_iter()
+                .enumerate()
+                .skip(self.selected)
+                .next()
+                .and_then(|(_, item)| item.on_select.take())
+            {
+                return slct;
+            }
         }
 
         self.selected = (
@@ -98,7 +88,31 @@ impl<I, B> View<Keys> for Menu<u32, I, B, Action<Keys>>
             }
         ) % self.count;
 
-        None
+        let selected = self.selected;
+
+        Action::Render(
+            box self.items.into_iter().enumerate().map(
+                move |(i, item)| {
+                    let sprite = if i == selected {
+                        &item.hover_sprite
+                    } else {
+                        &item.idle_sprite
+                    };
+
+                    (
+                        sprite.clone().into(),
+                        Dest {
+                            x: ((screen_w - sprite.mask.width) / 2) as _,
+                            y:
+                                (y_offset + y_gutter * i) as i32 -
+                                (sprite.mask.height / 2) as i32,
+                            width: sprite.mask.width,
+                            height: sprite.mask.height,
+                        }
+                    )
+                }
+            )
+        )
     }
 }
 
@@ -191,9 +205,9 @@ impl<T> MenuItem<T> {
 pub struct MainMenuBuilder;
 
 #[allow(boxed_local)]
-impl ViewBuilder<Keys> for MainMenuBuilder {
+impl ViewBuilder<Keys, VisibleComponent<Texture>> for MainMenuBuilder {
     fn build_view(self: Box<Self>, context: &mut Context<Keys>)
-        -> Box<View<Keys>>
+        -> Box<View<Keys, VisibleComponent<Texture>>>
     {
         Box::new(
             main_menu(context.renderer, context.font_cache, box ShipViewBuilder)
@@ -201,12 +215,14 @@ impl ViewBuilder<Keys> for MainMenuBuilder {
     }
 }
 
-pub struct PauseMenuBuilder<T>(pub Box<View<T>>);
+pub struct PauseMenuBuilder<A, B>(pub Box<View<A, B>>);
 
 #[allow(boxed_local)]
-impl ViewBuilder<Keys> for PauseMenuBuilder<Keys> {
+impl ViewBuilder<Keys, VisibleComponent<Texture>>
+    for PauseMenuBuilder<Keys, VisibleComponent<Texture>>
+{
     fn build_view(self: Box<Self>, context: &mut Context<Keys>)
-        -> Box<View<Keys>>
+        -> Box<View<Keys, VisibleComponent<Texture>>>
     {
         let next = self.0;
 
@@ -220,15 +236,15 @@ impl ViewBuilder<Keys> for PauseMenuBuilder<Keys> {
     }
 }
 
-pub fn main_menu(
+pub fn main_menu<'a>(
     renderer: &mut Renderer,
     cache: &mut FontCache,
-    view: Box<ViewBuilder<Keys>>
+    view: Box<ViewBuilder<Keys, VisibleComponent<Texture>>>
 ) -> Menu<
     u32,
-    [MenuItem<Action<Keys>>; 2],
+    [MenuItem<Action<'a, Keys, VisibleComponent<Texture>>>; 2],
     Background,
-    Action<Keys>
+    Action<'a, Keys, VisibleComponent<Texture>>
 > {
     let path = "assets/belligerent.ttf";
     let cache = cache.with_loaded(path, 38)
